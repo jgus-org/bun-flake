@@ -1,0 +1,3 @@
+# Per-branch ownership: when the orchestrator merges main into an existing exact branch, version-specific state stays on the branch.
+pin.nix     merge=ours
+flake.lock  merge=ours
