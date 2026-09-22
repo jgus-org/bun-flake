@@ -46,16 +46,44 @@
             runHook postInstall
           '';
         };
-        # Bun copies its own ELF layout into compiled executables. Keep its bytes pristine, changing only the equal-length interpreter string in a temporary copy while compiling; consumers restore the standard nix-ld path after their installed-binary checks.
         bunWrapper = pkgs.writeShellScript "bun" ''
-          bun_runtime="''${TMPDIR:-/tmp}/bun-${pin.version}"
-          if [[ ! -x "''${bun_runtime}" ]]; then
-            ${pkgs.coreutils}/bin/cp ${bunUnpatched}/bin/bun "''${bun_runtime}"
-            ${pkgs.coreutils}/bin/chmod u+w "''${bun_runtime}"
-            ${pkgs.gnused}/bin/sed -i 's|/lib64/ld-linux-x86-64.so.2|/build/bunld-linux-x64.so.2|' "''${bun_runtime}"
+          set -euo pipefail
+          uid="$(${pkgs.coreutils}/bin/id -u)"
+          alias_token="$(printf '%s' "$uid:${pkgs.stdenv.cc.bintools.dynamicLinker}" | ${pkgs.coreutils}/bin/sha256sum)"
+          bun_dir="/tmp/bun-''${alias_token:0:6}"
+          bun_loader="$bun_dir/ld-linux.so"
+          cache_root="''${TMPDIR:-/tmp}"
+          [[ "$cache_root" == /* && -d "$cache_root" ]] || exit 1
+          cache_dir="$cache_root/bun-cache-''${alias_token:0:6}"
+          bun_runtime="$cache_dir/${builtins.baseNameOf (toString bunUnpatched)}"
+          ${pkgs.coreutils}/bin/mkdir -p -m 700 "$bun_dir"
+          [[ -d "$bun_dir" && ! -L "$bun_dir" && "$(${pkgs.coreutils}/bin/stat -c '%u:%a' "$bun_dir")" == "$uid:700" ]] || exit 1
+          if [[ ! -e "$bun_loader" && ! -L "$bun_loader" ]]; then
+            ${pkgs.coreutils}/bin/ln -s ${pkgs.stdenv.cc.bintools.dynamicLinker} "$bun_loader" 2>/dev/null || true
           fi
-          ${pkgs.coreutils}/bin/ln -sf ${pkgs.stdenv.cc.bintools.dynamicLinker} /build/bunld-linux-x64.so.2
-          exec "''${bun_runtime}" "$@"
+          [[ -L "$bun_loader" && "$(${pkgs.coreutils}/bin/readlink "$bun_loader")" == ${pkgs.stdenv.cc.bintools.dynamicLinker} ]] || exit 1
+          ${pkgs.coreutils}/bin/mkdir -m 700 "$cache_dir" 2>/dev/null || true
+          [[ -d "$cache_dir" && ! -L "$cache_dir" && "$(${pkgs.coreutils}/bin/stat -c '%u:%a' "$cache_dir")" == "$uid:700" ]] || exit 1
+          exec 9<"$cache_dir"
+          ${pkgs.util-linux}/bin/flock 9
+          for abandoned in "$bun_runtime".staging.??????; do
+            [[ -e "$abandoned" || -L "$abandoned" ]] || continue
+            [[ -f "$abandoned" && ! -L "$abandoned" && "$(${pkgs.coreutils}/bin/stat -c '%u' "$abandoned")" == "$uid" ]] || exit 1
+            ${pkgs.coreutils}/bin/rm -- "$abandoned"
+          done
+          [[ ! -L "$bun_runtime" ]] || exit 1
+          if [[ ! -e "$bun_runtime" ]]; then
+            bun_tmp="$(${pkgs.coreutils}/bin/mktemp "$bun_runtime.staging.XXXXXX")"
+            trap '${pkgs.coreutils}/bin/rm -f "$bun_tmp"' EXIT
+            ${pkgs.gnused}/bin/sed "s|/lib64/ld-linux-x86-64[.]so[.]2|$bun_loader|" ${bunUnpatched}/bin/bun > "$bun_tmp"
+            ${pkgs.coreutils}/bin/chmod 755 "$bun_tmp"
+            [[ "$(${pkgs.patchelf}/bin/patchelf --print-interpreter "$bun_tmp")" == "$bun_loader" ]] || exit 1
+            ${pkgs.coreutils}/bin/mv -T "$bun_tmp" "$bun_runtime"
+          fi
+          [[ -f "$bun_runtime" && ! -L "$bun_runtime" && "$(${pkgs.coreutils}/bin/stat -c '%u:%a' "$bun_runtime")" == "$uid:755" ]] || exit 1
+          [[ "$(${pkgs.patchelf}/bin/patchelf --print-interpreter "$bun_runtime")" == "$bun_loader" ]] || exit 1
+          exec 9>&-
+          exec -a "$0" "$bun_runtime" "$@"
         '';
         restoreCompiledInterpreter = pkgs.writeShellScript "bun-restore-compiled-interpreter" ''
           set -euo pipefail
@@ -63,8 +91,15 @@
             echo "usage: bun-restore-compiled-interpreter EXECUTABLE..." >&2
             exit 2
           fi
+          uid="$(${pkgs.coreutils}/bin/id -u)"
+          alias_token="$(printf '%s' "$uid:${pkgs.stdenv.cc.bintools.dynamicLinker}" | ${pkgs.coreutils}/bin/sha256sum)"
+          bun_dir="/tmp/bun-''${alias_token:0:6}"
+          bun_loader="$bun_dir/ld-linux.so"
+          [[ -d "$bun_dir" && ! -L "$bun_dir" && "$(${pkgs.coreutils}/bin/stat -c '%u:%a' "$bun_dir")" == "$uid:700" ]] || exit 1
+          [[ -L "$bun_loader" && "$(${pkgs.coreutils}/bin/readlink "$bun_loader")" == ${pkgs.stdenv.cc.bintools.dynamicLinker} ]] || exit 1
           for executable in "$@"; do
-            ${pkgs.gnused}/bin/sed -i 's|/build/bunld-linux-x64.so.2|/lib64/ld-linux-x86-64.so.2|' "$executable"
+            [[ "$(${pkgs.patchelf}/bin/patchelf --print-interpreter "$executable")" == "$bun_loader" ]] || exit 1
+            ${pkgs.gnused}/bin/sed -i "s|/tmp/bun-''${alias_token:0:6}/ld-linux[.]so|/lib64/ld-linux-x86-64.so.2|" "$executable"
           done
         '';
         bun = pkgs.runCommand "bun-${pin.version}"
