@@ -151,6 +151,7 @@
             '';
           };
           update-branches = flake-lib.lib.mkUpdateBranches {
+            minimumTrackingVersion = "1.3.14";
             inherit pkgs source;
             pinSchema = "github";
             extraHashes = [ "assetHash" ];
