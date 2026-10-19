@@ -133,9 +133,7 @@
         });
         updateVersion = flake-lib.lib.mkUpdateVersion {
           inherit pkgs source artifactHook;
-          buildAttr = "bun";
           extraHashes = [ "assetHash" ];
-          verification = "build";
         };
       in
       {
