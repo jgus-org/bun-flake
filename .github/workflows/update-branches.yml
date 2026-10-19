@@ -3,7 +3,11 @@
 # there is nothing producer-specific in it to re-declare. A repository that does not have
 # this file yet installs it with
 # `nix run github:jgus-org/flake-lib/v1#update-workflows -- adopt update-branches.yml`.
-# Edit it in jgus-org/flake-lib's templates/workflows, not here. The workflow below updates
+# Edit it in jgus-org/flake-lib's templates/workflows, not here. Binary caching uses the
+# fleet Attic cache whenever the ATTIC_TOKEN secret resolves -- an organization secret
+# covers every repository at once -- and a repository, or a fork pull request, with no
+# token runs on the public cache alone.
+# The workflow below updates
 # itself: a run reads this file when it starts, so the first job refreshes it and
 # commits that revision, and every later job checks out that commit. The scripts it
 # invokes therefore move in the same run as the flake-lib input they come from.
@@ -28,23 +32,53 @@ jobs:
     outputs:
       sha: ${{ steps.update.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: cachix/install-nix-action@v31
 
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: jgus-org/flake-lib/.github/actions/fleet-nix-cache@v1
         with:
-          use-gha-cache: true
-          use-flakehub: false
+          token: ${{ secrets.ATTIC_TOKEN }}
 
       - name: Update workflows from flake-lib templates
         id: update
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.ORG_UPDATE_TOKEN }}
         run: nix run github:jgus-org/flake-lib/v1#update-workflows
 
-  discover:
+  # A producer whose flake takes inputs from other producers here must not pin them before
+  # their own update has published. The edges are this repository's flake inputs, so nothing
+  # below is producer-specific, and a leaf producer's run reports nothing to wait for. A
+  # dependency that cannot be observed, that ended badly, or that never finishes is reported
+  # and skipped: ordering is worth waiting for, not worth stalling the fleet on.
+  deps:
     needs: workflows
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.workflows.outputs.sha || github.sha }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: cachix/install-nix-action@v31
+
+      - uses: jgus-org/flake-lib/.github/actions/fleet-nix-cache@v1
+        with:
+          token: ${{ secrets.ATTIC_TOKEN }}
+
+      - name: Wait for dependency updates
+        env:
+          # Reading another repository's runs and starting a dependency's update both need a
+          # token. This organization secret covers every repository, so no producer declares
+          # anything, and with no such secret the gate observes nothing and proceeds.
+          GITHUB_TOKEN: ${{ secrets.ORG_UPDATE_TOKEN }}
+        run: nix run github:jgus-org/flake-lib/v1#wait-for-deps
+
+  discover:
+    needs: [workflows, deps]
     if: always()
     runs-on: ubuntu-latest
     outputs:
@@ -53,18 +87,17 @@ jobs:
       newest_stable: ${{ steps.plan.outputs.newest_stable }}
       maintenance: ${{ steps.plan.outputs.maintenance }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ needs.workflows.outputs.sha || github.sha }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: cachix/install-nix-action@v31
 
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: jgus-org/flake-lib/.github/actions/fleet-nix-cache@v1
         with:
-          use-gha-cache: true
-          use-flakehub: false
+          token: ${{ secrets.ATTIC_TOKEN }}
 
       - name: Discover tracked versions and specification base
         id: plan
@@ -78,18 +111,17 @@ jobs:
     if: always() && needs.discover.result == 'success' && needs.discover.outputs.newest_stable != 'null'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ needs.workflows.outputs.sha || github.sha }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: cachix/install-nix-action@v31
 
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: jgus-org/flake-lib/.github/actions/fleet-nix-cache@v1
         with:
-          use-gha-cache: true
-          use-flakehub: false
+          token: ${{ secrets.ATTIC_TOKEN }}
 
       - name: Refresh newest stable
         env:
@@ -127,18 +159,17 @@ jobs:
         entry: ${{ fromJson(needs.discover.outputs.maintenance) }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ needs.workflows.outputs.sha || github.sha }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: cachix/install-nix-action@v31
 
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: jgus-org/flake-lib/.github/actions/fleet-nix-cache@v1
         with:
-          use-gha-cache: true
-          use-flakehub: false
+          token: ${{ secrets.ATTIC_TOKEN }}
 
       - name: Refresh exact version
         env:
@@ -157,18 +188,17 @@ jobs:
     if: always() && needs.discover.result == 'success'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ needs.workflows.outputs.sha || github.sha }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: cachix/install-nix-action@v31
 
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: jgus-org/flake-lib/.github/actions/fleet-nix-cache@v1
         with:
-          use-gha-cache: true
-          use-flakehub: false
+          token: ${{ secrets.ATTIC_TOKEN }}
 
       - name: Publish aggregate pointers
         env:
