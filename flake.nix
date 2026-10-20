@@ -4,6 +4,10 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    treefmt-nix = {
+      url = "github:numtide/treefmt-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     flake-lib = {
       url = "github:jgus-org/flake-lib/v1";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -11,7 +15,15 @@
     };
   };
 
-  outputs = { nixpkgs, flake-utils, flake-lib, ... }:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+      treefmt-nix,
+      flake-lib,
+      ...
+    }:
     let
       pin = import ./pin.nix;
       source = {
@@ -21,10 +33,15 @@
         tagPrefix = "bun-v";
       };
     in
-    flake-utils.lib.eachSystem [ "x86_64-linux" ] (system:
+    flake-utils.lib.eachSystem [ "x86_64-linux" ] (
+      system:
       let
         pkgs = import nixpkgs { inherit system; };
         inherit (pkgs) lib;
+        treefmtEval = treefmt-nix.lib.evalModule pkgs {
+          projectRootFile = "flake.nix";
+          programs.nixfmt.enable = true;
+        };
         assetName = "bun-linux-x64-baseline.zip";
         archive = pkgs.fetchurl {
           url = "https://github.com/${source.owner}/${source.repo}/releases/download/bun-v${pin.version}/${assetName}";
@@ -102,41 +119,46 @@
             ${pkgs.gnused}/bin/sed -i "s|/tmp/bun-''${alias_token:0:6}/ld-linux[.]so|/lib64/ld-linux-x86-64.so.2|" "$executable"
           done
         '';
-        bun = pkgs.runCommand "bun-${pin.version}"
-          {
-            inherit (pin) version;
-            meta = {
-              description = "Incredibly fast JavaScript runtime, bundler, test runner, and package manager";
-              homepage = "https://bun.com";
-              license = lib.licenses.mit;
-              mainProgram = "bun";
-              platforms = [ "x86_64-linux" ];
-            };
+        bun =
+          pkgs.runCommand "bun-${pin.version}"
+            {
+              inherit (pin) version;
+              meta = {
+                description = "Incredibly fast JavaScript runtime, bundler, test runner, and package manager";
+                homepage = "https://bun.com";
+                license = lib.licenses.mit;
+                mainProgram = "bun";
+                platforms = [ "x86_64-linux" ];
+              };
+            }
+            ''
+              mkdir -p $out/bin
+              ln -s ${bunWrapper} $out/bin/bun
+              ln -s bun $out/bin/bunx
+              ln -s ${restoreCompiledInterpreter} $out/bin/bun-restore-compiled-interpreter
+              test "$($out/bin/bun --version)" = "${pin.version}"
+            '';
+        artifactHook = lib.getExe (
+          pkgs.writeShellApplication {
+            name = "bun-release-artifacts";
+            runtimeInputs = [
+              pkgs.jq
+              pkgs.nix
+            ];
+            text = ''
+              ASSET_HASH="$(nix store prefetch-file --json --hash-type sha256 "https://github.com/oven-sh/bun/releases/download/bun-v''${NEW_VERSION}/${assetName}" | jq -r .hash)"
+              printf 'assetHash=%s\n' "''${ASSET_HASH}"
+            '';
           }
-          ''
-            mkdir -p $out/bin
-            ln -s ${bunWrapper} $out/bin/bun
-            ln -s bun $out/bin/bunx
-            ln -s ${restoreCompiledInterpreter} $out/bin/bun-restore-compiled-interpreter
-            test "$($out/bin/bun --version)" = "${pin.version}"
-          '';
-        artifactHook = lib.getExe (pkgs.writeShellApplication {
-          name = "bun-release-artifacts";
-          runtimeInputs = [
-            pkgs.jq
-            pkgs.nix
-          ];
-          text = ''
-            ASSET_HASH="$(nix store prefetch-file --json --hash-type sha256 "https://github.com/oven-sh/bun/releases/download/bun-v''${NEW_VERSION}/${assetName}" | jq -r .hash)"
-            printf 'assetHash=%s\n' "''${ASSET_HASH}"
-          '';
-        });
+        );
         updateVersion = flake-lib.lib.mkUpdateVersion {
           inherit pkgs source artifactHook;
           extraHashes = [ "assetHash" ];
         };
       in
       {
+        formatter = treefmtEval.config.build.wrapper;
+
         packages = {
           inherit bun;
           default = bun;
@@ -155,6 +177,10 @@
             extraHashes = [ "assetHash" ];
           };
         };
-        checks.bun = bun;
-      });
+        checks = {
+          bun = bun;
+          formatting = treefmtEval.config.build.check self;
+        };
+      }
+    );
 }
