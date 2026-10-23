@@ -2,34 +2,26 @@
   description = "Bun JavaScript runtime and compiler from upstream release binaries";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    flake-lib.url = "github:jgus-org/flake-lib/v1";
     flake-utils.url = "github:numtide/flake-utils";
-    treefmt-nix = {
-      url = "github:numtide/treefmt-nix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    flake-lib = {
-      url = "github:jgus-org/flake-lib/v1";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
   };
 
   outputs =
     {
       self,
-      nixpkgs,
-      flake-utils,
-      treefmt-nix,
       flake-lib,
+      flake-utils,
+      nixpkgs,
       ...
     }:
     let
       pin = import ./pin.nix;
       source = {
-        type = "github";
         owner = "oven-sh";
         repo = "bun";
         tagPrefix = "bun-v";
+        type = "github";
       };
     in
     flake-utils.lib.eachSystem [ "x86_64-linux" ] (
@@ -37,23 +29,18 @@
       let
         pkgs = import nixpkgs { inherit system; };
         inherit (pkgs) lib;
-        treefmtEval = treefmt-nix.lib.evalModule pkgs {
-          projectRootFile = "flake.nix";
-          programs.nixfmt.enable = true;
+        orgFormatting = flake-lib.lib.mkFormatting {
+          inherit self system;
         };
         assetName = "bun-linux-x64-baseline.zip";
         archive = pkgs.fetchurl {
-          url = "https://github.com/${source.owner}/${source.repo}/releases/download/bun-v${pin.version}/${assetName}";
           hash = pin.assetHash or "";
+          url = "https://github.com/${source.owner}/${source.repo}/releases/download/bun-v${pin.version}/${assetName}";
         };
         bunUnpatched = pkgs.stdenvNoCC.mkDerivation {
-          pname = "bun-unpatched";
           inherit (pin) version;
-          src = archive;
-          sourceRoot = "bun-linux-x64-baseline";
-          nativeBuildInputs = [ pkgs.unzip ];
-          dontConfigure = true;
           dontBuild = true;
+          dontConfigure = true;
           dontPatchELF = true;
           dontStrip = true;
           installPhase = ''
@@ -61,6 +48,10 @@
             install -Dm755 bun $out/bin/bun
             runHook postInstall
           '';
+          nativeBuildInputs = [ pkgs.unzip ];
+          pname = "bun-unpatched";
+          sourceRoot = "bun-linux-x64-baseline";
+          src = archive;
         };
         bunWrapper = pkgs.writeShellScript "bun" ''
           set -euo pipefail
@@ -151,16 +142,25 @@
           }
         );
         updateVersion = flake-lib.lib.mkUpdateVersion {
-          inherit pkgs source artifactHook;
+          inherit artifactHook pkgs source;
           extraHashes = [ "assetHash" ];
         };
       in
       {
-        formatter = treefmtEval.config.build.wrapper;
-
+        checks = {
+          bun = bun;
+          formatting = orgFormatting.check;
+        };
+        formatter = orgFormatting.formatter;
         packages = {
           inherit bun;
           default = bun;
+          update-branches = flake-lib.lib.mkUpdateBranches {
+            inherit pkgs source;
+            extraHashes = [ "assetHash" ];
+            minimumTrackingVersion = "1.3.14";
+            pinSchema = "github";
+          };
           update-version = pkgs.writeShellApplication {
             name = "update-version";
             runtimeInputs = [ pkgs.nix ];
@@ -169,16 +169,6 @@
               nix build --option post-build-hook "" --no-link "''${FLAKE_ROOT:-$PWD}#bun"
             '';
           };
-          update-branches = flake-lib.lib.mkUpdateBranches {
-            minimumTrackingVersion = "1.3.14";
-            inherit pkgs source;
-            pinSchema = "github";
-            extraHashes = [ "assetHash" ];
-          };
-        };
-        checks = {
-          bun = bun;
-          formatting = treefmtEval.config.build.check self;
         };
       }
     );
