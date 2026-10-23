@@ -6,10 +6,10 @@ A Nix flake that provides [Bun](https://bun.com), the JavaScript runtime, bundle
 
 `packages.<system>.bun`, and the same package again as `packages.<system>.default`. Its `bin/` holds:
 
-| Program                                     | What it is                                                                       |
-| ------------------------------------------- | -------------------------------------------------------------------------------- |
-| `bun`                                       | the Bun command line                                                             |
-| `bunx`                                      | `bun` under its `bunx` name                                                      |
+| Program                                          | What it is                                                                                                        |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `bun`                                            | the Bun command line                                                                                              |
+| `bunx`                                           | `bun` under its `bunx` name                                                                                       |
 | `bun-restore-compiled-interpreter EXECUTABLE...` | rewrite a `bun build --compile` output back to the FHS loader — see [Compiled executables](#compiled-executables) |
 
 ## Consuming it
