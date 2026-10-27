@@ -18,7 +18,7 @@ A Nix flake that provides [Bun](https://bun.com), the JavaScript runtime, bundle
 inputs.bun.url = "github:jgus-org/bun-flake";
 ```
 
-then use `bun.packages.${system}.bun` wherever you would name an ordinary package, for instance in `nativeBuildInputs`. The flake itself pulls in `nixpkgs`, `flake-utils` and `flake-lib`; following those inputs into the consumer's own copies keeps a single nixpkgs and a single flake-lib in the evaluation.
+then use `bun.packages.${system}.bun` wherever you would name an ordinary package, for instance in `nativeBuildInputs`. The flake itself pulls in `nixpkgs` and `flake-lib`; following those inputs into the consumer's own copies keeps a single nixpkgs and a single flake-lib in the evaluation.
 
 ## Platform support
 

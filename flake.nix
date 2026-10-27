@@ -3,7 +3,6 @@
 
   inputs = {
     flake-lib.url = "github:jgus-org/flake-lib/v1";
-    flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
   };
 
@@ -11,7 +10,6 @@
     {
       self,
       flake-lib,
-      flake-utils,
       nixpkgs,
       ...
     }:
@@ -24,7 +22,7 @@
         type = "github";
       };
     in
-    flake-utils.lib.eachSystem [ "x86_64-linux" ] (
+    flake-lib.lib.eachSystem [ "x86_64-linux" ] (
       system:
       let
         pkgs = import nixpkgs { inherit system; };
