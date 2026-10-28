@@ -39,6 +39,4 @@ then use `bun.packages.${system}.bun` wherever you would name an ordinary packag
 
 The rewrite is checked rather than blind: the tool exits non-zero unless the executable's interpreter is exactly the one this package writes and the private loader directory is present, so run it on the build host as the same user, immediately after the build.
 
-## Licence
-
-Upstream Bun is MIT-licensed; the package's `meta.license` is `lib.licenses.mit`.
+See [LICENSE.md](LICENSE.md) for licensing and copyright, and [NOTICE.md](NOTICE.md) for the terms of upstream and distributed artifacts.
