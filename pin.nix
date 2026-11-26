@@ -1,7 +1,7 @@
 # Auto-managed by `nix run .#update-version`. Manual edits will be overwritten by the next bump.
 {
-  assetHash = "sha256-3LI6GKHC//EtV7zvaW27tC62f94p9DgW7LWVRZokxGM=";
-  sourceHash = "sha256-tDQ+U/bA2MWRZZHlLu0VcFoXb/lCODUk95D8jeNqwws=";
-  sourceRev = "a7733435cf40429e3b35c36072769df2052b80f1";
-  version = "1.4.5";
+  assetHash = "sha256-H8LtrIQxApCeOhvh2NmALMYHHPB05n6IIx9P/g+LOXs=";
+  sourceHash = "sha256-NXKOmxQHguwkGIuq9z5kFrektrxPEmFzjoBHWyOlovU=";
+  sourceRev = "c6da4a4d3010e5553438c60f6bd76d981976867c";
+  version = "1.4.3";
 }
